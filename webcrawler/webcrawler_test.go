@@ -1,21 +1,18 @@
 package webcrawler
 
 import (
-	"fmt"
+	"sync"
 	"testing"
 )
 
 func TestWebcrawler(t *testing.T) {
-	c := make(chan string)
-	done := SafeMap{V: make(map[string]bool)}
-	go Crawl("https://golang.org/", 4, fetcher, c, &done, 5)
-	for {
-		v, ok := <-c
-		fmt.Println("channel c receives ", v)
-		if !ok {
-			return
-		}
-	}
+	var wg sync.WaitGroup
+	data := SafeMap{V: make(map[string]bool)}
+
+	wg.Add(1)
+	go Crawl("https://golang.org/", 4, fetcher, &data, &wg)
+
+	wg.Wait()
 }
 
 var fetcher = FakeFetcher{

@@ -14,35 +14,19 @@ type Fetcher interface {
 // Crawl uses fetcher to recursively crawl
 // pages starting with url, to a maximum of depth.
 // i'm not sure when to stop crawler so i set the limit
-func Crawl(url string, depth int, fetcher Fetcher, c chan string, done *SafeMap, lim int) {
+func Crawl(url string, depth int, fetcher Fetcher, data *SafeMap, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	if depth <= 0 {
 		return
 	}
 	body, urls, err := fetcher.Fetch(url)
-
-	size := done.Add(url)
+	data.Add(url)
 
 	if body != "" {
 		fmt.Printf("found: %s %q\n", url, body)
 	}
 
-	// FIXME: it will break the sync if you set random delay here.
-	// url have to be send right after adding it to safemap
-	// otherwise it will break the sync and raise panic
-	// `send on closed channel`
-
-	// how to fix (idea):
-	// 1. send url to channel inside Add method
-	// 2. maybe check if channel is closed before send it
-	// 		see -> https://stackoverflow.com/questions/16105325/how-to-check-a-channel-is-closed-or-not-without-reading-it
-
-	if size < lim {
-		c <- url
-	} else {
-		c <- url
-		close(c)
-		return
-	}
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -50,11 +34,10 @@ func Crawl(url string, depth int, fetcher Fetcher, c chan string, done *SafeMap,
 
 	for _, u := range urls {
 		// Dont fetch the same url twice ✔️
-		// NOTE: for a little delay after Check() it will fetch same url twice or more thou �‍♂️� ,
-		// but likely it will never happened
-		if ok := done.Check(u); !ok {
+		if ok := data.Check(u); !ok {
 			// Fetch url in paralel ✔️
-			go Crawl(u, depth-1, fetcher, c, done, lim)
+			wg.Add(1)
+			go Crawl(u, depth-1, fetcher, data, wg)
 		}
 	}
 }
@@ -67,16 +50,16 @@ type SafeMap struct {
 // Check return true if key already in SafeMap
 func (m *SafeMap) Check(k string) bool {
 	m.mu.Lock()
-	_, ok := m.V[k]
 	defer m.mu.Unlock()
+	_, ok := m.V[k]
 	return ok
 }
 
 // Add add key to SafeMap and get size of the map
 func (m *SafeMap) Add(k string) int {
 	m.mu.Lock()
-	m.V[k] = true
 	defer m.mu.Unlock()
+	m.V[k] = true
 	return len(m.V)
 }
 
